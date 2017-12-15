@@ -143,6 +143,11 @@ SCORE_IN_DEC DB "$"
 SCORE_SIZE dw 4
 WINNER_FLAG db ?
 FILEHANDLE_SCORE_READ DW ?
+CONVERT_COUNTER DW ?
+SUM DW ? ,"$"
+ONED DB 10 ;---one digit multiply
+TWOD DB 100 ;----2 digit multiply
+COUNTER DW ?
 ;------------------------------------------------------------------------------------------------
 ;------------------------------------------------------------------------------------------------
 ;------------------------------------------------------------------------------------------------
@@ -166,7 +171,7 @@ MAIN PROC FAR
 
 	CALL MAIN_SCREEN
 
-	CALL SHOW_HOW_TO
+	CALL SHOW_HOW_TO_PLAY
 
 	CALL WAIT_ENTER
 
@@ -208,15 +213,36 @@ READ_PREV_SCORE PROC NEAR
 READ_PREV_SCORE ENDP
 ;-------------------------------------
 COMPARE_SCORES PROC NEAR
-	;MOV AL, SCORE
-	;CMP AL, PREV_SCORE
-	;JLE END_NORMAL
-	;CALL GAME_OVER_NEW_HIGHEST
-	;JMP RET1
+	CALL GETSIZE
+	CLD               			  ;clear direction flag (left to right)
+  	MOV CX, COUNTER        ;initializes CX (counter) to 16 bytes
+  	LEA SI, PREV_SCORE  		  ;initialize receiving address
+	MOV CONVERT_COUNTER, 1
+	MOV SUM, 0000
+	CONVERT_TO_DEC:
+		XOR AX, AX
+	    MOV AL, [SI]
+	    SUB AL, '0'
+	    ADC AH, 0 				;--get rid of unneccesary values in ah
+	    MOV AH, 00
+	    MUL CONVERT_COUNTER
+	    ADD SUM, AX
+	    INC SI
+	    MOV AX, CONVERT_COUNTER
+	    MUL ONED
+	    MOV CONVERT_COUNTER, AX
+	    MOV AX, 0000
+	LOOP CONVERT_TO_DEC
 
+	PROCEED_TO_COMPARE:
+		MOV AH, 00
+		MOV AL, SCORE
+		CMP AX, SUM
+		JLE END_NORMAL
+		CALL GAME_OVER_NEW_HIGHEST 
+		JMP RET1
 	END_NORMAL:
 		CALL GAME_OVER_NORMAL
-
 	RET1:
 		RET 
 COMPARE_SCORES ENDP
@@ -282,7 +308,7 @@ MAIN_SCREEN PROC NEAR
 		CMP TITLE_SCREEN_INPUT, 0DH
 		JE HOW_TO  						;---show how to play game
 
-		JMP LISTEN
+		JMP LISTEN 	;---checks whenever a key is pressed
 
 		HOW_TO:
 			CALL CLEAR_SCREEN
@@ -312,7 +338,7 @@ GET_KEY PROC NEAR
 	RET
 GET_KEY ENDP
 ;-------------------------------------------
-SHOW_HOW_TO PROC NEAR
+SHOW_HOW_TO_PLAY PROC NEAR
 
 	;---print howtoplay
 	MOV DX, OFFSET HOW1
@@ -353,7 +379,7 @@ SHOW_HOW_TO PROC NEAR
 	CALL SET_CURSOR
 	
 	RET
-SHOW_HOW_TO ENDP
+SHOW_HOW_TO_PLAY ENDP
 ;-------------------------------------------
 WAIT_ENTER PROC NEAR
 
@@ -388,7 +414,10 @@ WAIT_ENTER PROC NEAR
 		MOV AX, 4C00H
 		INT 21H
 WAIT_ENTER ENDP
-;-----------------------------------------
+;-------------------------------------------------------------------------------------------------------------------------------------------------
+;-------------------------------------------------------------------------------------------------------------------------------------------------
+;-------------------------------------------------------------------------------------------------------------------------------------------------
+;-------------------------------------------------------------------------------------------------------------------------------------------------
 GAME_OVER_NORMAL PROC NEAR
 
 	CALL CLEAR_SCREEN
@@ -399,6 +428,42 @@ GAME_OVER_NORMAL PROC NEAR
 	MOV DL, K_COL
 	CALL SET_CURSOR
 
+	CALL DISPLAY_LABELS1_GN
+	CALL READ_PREV_NAME
+	CALL DISPLAY_LABELS2_GN
+
+	lea dx, score
+	mov ah, 09
+	int 21h
+	
+	MOV K_ROW, 26
+	MOV K_COL, 00
+	MOV DH, K_ROW
+	MOV DL, K_COL
+	CALL SET_CURSOR
+
+	RET
+GAME_OVER_NORMAL ENDP
+;-------------------------------------------------------------------------------------------------------------------------------------------------
+;-------------------------------------------------------------------------------------------------------------------------------------------------
+;-------------------------------------------------------------------------------------------------------------------------------------------------
+;-------------------------------------------------------------------------------------------------------------------------------------------------
+GETSIZE PROC NEAR
+  MOV COUNTER,0
+  XOR SI,SI
+COPY10:
+  CMP PREV_SCORE[SI],'$'
+  JE END10
+  INC COUNTER
+  INC SI
+  JMP COPY10
+END10:
+  MOV SUM[SI],'$'
+  
+RET
+GETSIZE ENDP
+;-------------------------------------------------------------------------------------------------------------------------------------------------
+DISPLAY_LABELS1_GN PROC NEAR
 	MOV DX, OFFSET GAMEOVER1
 	MOV AH, 09
 	INT 21H
@@ -416,11 +481,14 @@ GAME_OVER_NORMAL PROC NEAR
 	MOV DX, OFFSET SCORE_IN_DEC
 	MOV AH, 09
 	INT 21H
-	;------------------------------------------------------------------------TODO: print players current score - DONE!!!
 
 	MOV DX, OFFSET HIGHEST_SCORE_DISPLAY1
 	MOV AH, 09
 	INT 21H
+RET
+DISPLAY_LABELS1_GN ENDP
+;---------------------------------------------
+DISPLAY_LABELS2_GN PROC NEAR
 
 	MOV K_ROW, 15
 	MOV K_COL, 28
@@ -428,40 +496,24 @@ GAME_OVER_NORMAL PROC NEAR
 	MOV DL, K_COL
 	CALL SET_CURSOR
 
-	READ_NAME:
-		MOV AH, 3DH           ;request open file
-		MOV AL, 00            ;read only; 01 (write only); 10 (read/write)
-		LEA DX, NAME_FILE
-		INT 21H
-		;JC DISPLAY_ERROR1_READ     ;jump if carry is set (C = 1)
-		MOV FILEHANDLE_NAME_READ, AX
-
-		MOV AH, 3FH           			;request read record
-		MOV BX, FILEHANDLE_NAME_READ    ;file handle
-		MOV CX, 50          			;record length
-		LEA DX, STORED_NAME	    		;address of input area
-		INT 21H
-		;JC DISPLAY_ERROR2_READ
-		CMP AX, 00            			;zero bytes read?
-		;JE DISPLAY_ERROR3_READ
-
-		MOV AH, 3EH           		   ;request close file
-  		MOV BX, FILEHANDLE_NAME_READ    ;file handle
-  		INT 21H
-
 	MOV DX, OFFSET STORED_NAME ;--------------------storage variable for the defending highest score read from NIC_SCORE.txt
 	MOV AH, 09
 	INT 21H
 
 	MOV K_ROW, 16
-	MOV K_COL, 33
+	MOV K_COL, 27
 	MOV DH, K_ROW
 	MOV DL, K_COL
 	CALL SET_CURSOR
 
+	MOV DX, OFFSET PREV_SCORE_LABEL
+	MOV AH, 09
+	INT 21H
+
 	MOV DX, OFFSET PREV_SCORE
 	MOV AH, 09
 	INT 21H
+	RET 
 
 	MOV K_ROW, 16
 	MOV K_COL, 40
@@ -483,12 +535,75 @@ GAME_OVER_NORMAL PROC NEAR
 	MOV DL, K_COL
 	CALL SET_CURSOR
 
+	;MOV DX, OFFSET PREV_SCORE_LEN
+	;MOV AH, 09
+	;INT 21H
+
 	RET
-GAME_OVER_NORMAL ENDP
-;-------------------------------------------------------------------------------------------------
-;-------------------------------------------------------------------------------------------------
-;-------------------------------------------------------------------------------------------------
+DISPLAY_LABELS2_GN ENDP
+;---------------------------------------------
+READ_PREV_NAME PROC NEAR
+	MOV AH, 3DH           ;request open file
+	MOV AL, 00            ;read only; 01 (write only); 10 (read/write)
+	LEA DX, NAME_FILE
+	INT 21H
+	MOV FILEHANDLE_NAME_READ, AX
+
+	MOV AH, 3FH           			;request read record
+	MOV BX, FILEHANDLE_NAME_READ    ;file handle
+	MOV CX, 50          			;record length
+	LEA DX, STORED_NAME	    		;address of input area
+	INT 21H
+	CMP AX, 00            			;zero bytes read?
+
+	MOV AH, 3EH           		   ;request close file
+	MOV BX, FILEHANDLE_NAME_READ    ;file handle
+	INT 21H
+RET 
+READ_PREV_NAME ENDP
+;-------------------------------------------------------------------------------------------------------------------------------------------------
+;-------------------------------------------------------------------------------------------------------------------------------------------------
+;-------------------------------------------------------------------------------------------------------------------------------------------------
+;-------------------------------------------------------------------------------------------------------------------------------------------------
 GAME_OVER_NEW_HIGHEST PROC NEAR
+
+	CALL DISPLAY_LABELS1_GH
+	CALL GET_HIGHEST_NAME
+	CALL WRITE_HIGHEST_SCORE_NAME	;----write highest score name to a file
+
+	CALL WRITE_HIGHEST_SCORE    ;---create file to save score int as string
+	CALL CLEAR_SCREEN
+
+	MOV K_ROW, 00
+	MOV K_COL, 00
+	MOV DH, K_ROW
+	MOV DL, K_COL
+	CALL SET_CURSOR
+
+	CALL DISPLAY_LABELS2_GH	
+
+	MOV K_ROW, 26
+	MOV K_COL, 00
+	MOV DH, K_ROW
+	MOV DL, K_COL
+	CALL SET_CURSOR
+
+	RET
+GAME_OVER_NEW_HIGHEST ENDP
+;-------------------------------------------------------------------------------------------------------------------------------------------------
+;-------------------------------------------------------------------------------------------------------------------------------------------------
+;-------------------------------------------------------------------------------------------------------------------------------------------------
+;-------------------------------------------------------------------------------------------------------------------------------------------------
+;-------------------------------------------------------------------------------------------------------------------------------------------------
+DISPLAY_LABELS1_GH PROC NEAR
+
+	CALL CLEAR_SCREEN
+
+	MOV K_ROW, 00
+	MOV K_COL, 00
+	MOV DH, K_ROW
+	MOV DL, K_COL
+	CALL SET_CURSOR
 
 	MOV DX, OFFSET CONGRATULATIONS1
 	MOV AH, 09
@@ -506,7 +621,11 @@ GAME_OVER_NEW_HIGHEST PROC NEAR
 	MOV AH, 09
 	INT 21H
 
-	;---get string name input and display it
+RET 
+DISPLAY_LABELS1_GH ENDP
+;-------------------------------------------
+GET_HIGHEST_NAME PROC NEAR
+;---get string name input and display it
 	MOV AH, 3FH
 	MOV BX, 00
 	MOV CX, 30
@@ -514,63 +633,65 @@ GAME_OVER_NEW_HIGHEST PROC NEAR
 	INT 21H
 
 	MOV NAME_SIZE, AX ;---store length of name in NAME_SIZE
-
-	;----write highest score name to a file
-	WRITE_HIGHEST_SCORE_NAME:
-		MOV AH, 3CH                 ;request create file
-		MOV CX, 00                  ;normal attribute
-		LEA DX, NAME_FILE  			;load path and file name
-		INT 21H
-		;JC DISPLAY_ERROR1_WRITE     ;if there's error in creating file, carry flag = 1, otherwise 0'
-		MOV FILEHANDLE_NAME_WRITE, AX
-
-		MOV AH, 40H                        ;request write record
-		MOV BX, FILEHANDLE_NAME_WRITE      ;file handle
-		MOV CX, NAME_SIZE                  ;record length
-		LEA DX, NAME_HIGHEST_SCORE	       ;address of output area
-		INT 21H
-		;JC DISPLAY_ERROR2_WRITE            ;if carry flag = 1, there's error in writing (nothing is written)'
-		CMP AX, NAME_SIZE                  ;after writing, set AX to size of chars nga na write
-		;JNE DISPLAY_ERROR3_WRITE
-
-		MOV AH, 3EH                 	 ;request close file
-		MOV BX, FILEHANDLE_NAME_WRITE    ;file handle
-		INT 21H
-
-	;-----------------------------------------------------------------TODO: write new highest SCORE to file NIC_SCORE.txt --DONE!!!
-	;create file
-	MOV AH, 3CH           ;request create file
-	MOV CX, 00            ;normal attribute
-	LEA DX, SCORE_FILE  ;load path and file name
+RET 
+GET_HIGHEST_NAME ENDP
+;-------------------------------------------
+WRITE_HIGHEST_SCORE_NAME PROC NEAR
+	MOV AH, 3CH                 ;request create file
+	MOV CX, 00                  ;normal attribute
+	LEA DX, NAME_FILE  			;load path and file name
 	INT 21H
-	;JC DISPLAY_ERROR1_WRITE     ;if there is error in creating file, carry flag = 1, otherwise 0
-	MOV FILEHANDLE_SCORE_WRITE, AX
+	;JC DISPLAY_ERROR1_WRITE     ;if there's error in creating file, carry flag = 1, otherwise 0'
+	MOV FILEHANDLE_NAME_WRITE, AX
 
-	;write file
-	MOV AH, 40H           ;request write record
-	MOV BX, FILEHANDLE_NAME_WRITE    ;file handle
-	MOV CX, score_size            ;record length
-	LEA DX, SCORE_IN_DEC   ;address of output area
+	MOV AH, 40H                        ;request write record
+	MOV BX, FILEHANDLE_NAME_WRITE      ;file handle
+	MOV CX, NAME_SIZE                  ;record length
+	LEA DX, NAME_HIGHEST_SCORE	       ;address of output area
 	INT 21H
-	;JC DISPLAY_ERROR2_WRITE     ;if carry flag = 1, there is error in writing (nothing is written)
-	CMP AX, score_size            ;after writing, set AX to size of chars nga na write
+	;JC DISPLAY_ERROR2_WRITE            ;if carry flag = 1, there's error in writing (nothing is written)'
+	CMP AX, NAME_SIZE                  ;after writing, set AX to size of chars nga na write
 	;JNE DISPLAY_ERROR3_WRITE
 
-	;close file handle
-	MOV AH, 3EH           ;request close file
+	MOV AH, 3EH                 	 ;request close file
+	MOV BX, FILEHANDLE_NAME_WRITE    ;file handle
+	INT 21H
+RET
+WRITE_HIGHEST_SCORE_NAME ENDP
+;-------------------------------------------
+WRITE_HIGHEST_SCORE PROC NEAR
+	XOR AX, AX
+		MOV AL, SCORE
+		ADC AH, 0
+		MOV VAL, AX 
+		MOV AX, VAL 
+		CALL INT_TO_STR
+
+	MOV AH, 3CH                 ;request create file
+	MOV CX, 00                  ;normal attribute
+	LEA DX, SCORE_FILE  			;load path and file name
+	INT 21H
+	;JC DISPLAY_ERROR1_WRITE     ;if there's error in creating file, carry flag = 1, otherwise 0'
+	MOV FILEHANDLE_SCORE_WRITE, AX
+
+	MOV AH, 40H                        ;request write record
+	MOV BX, FILEHANDLE_SCORE_WRITE      ;file handle
+	MOV CX, SCORE_SIZE                  ;record length
+	 ;---int score data to string
+		
+	LEA DX, SCORE_IN_DEC 	       ;address of output area
+	INT 21H
+	;JC DISPLAY_ERROR2_WRITE            ;if carry flag = 1, there's error in writing (nothing is written)'
+	CMP AX, SCORE_SIZE                  ;after writing, set AX to size of chars nga na write
+	;JNE DISPLAY_ERROR3_WRITE
+
+	MOV AH, 3EH                 	 ;request close file
 	MOV BX, FILEHANDLE_SCORE_WRITE    ;file handle
 	INT 21H
-
-
-
-	CALL CLEAR_SCREEN
-
-	MOV K_ROW, 00
-	MOV K_COL, 00
-	MOV DH, K_ROW
-	MOV DL, K_COL
-	CALL SET_CURSOR
-
+RET 
+WRITE_HIGHEST_SCORE ENDP
+;-------------------------------------------
+DISPLAY_LABELS2_GH PROC NEAR
 	MOV DX, OFFSET GAMEOVER1
 	MOV AH, 09
 	INT 21H
@@ -579,63 +700,82 @@ GAME_OVER_NEW_HIGHEST PROC NEAR
 	MOV AH, 09
 	INT 21H
 
-	LEA DX, SCORE_IN_DEC
-	MOV AH, 09
-	INT 21H
+	 ;---int score data to string
+		
+		LEA DX, SCORE_IN_DEC
+		MOV AH, 09
+		INT 21H
 	;-------------------------------------------------------------------TODO: print new score - DONE!!!
 	MOV DX, OFFSET HIGHEST_SCORE_DISPLAY1
 	MOV AH, 09
 	INT 21H
 
+	MOV K_ROW, 15
+	MOV K_COL, 28
+	MOV DH, K_ROW
+	MOV DL, K_COL
+	CALL SET_CURSOR
+
 	MOV DX, OFFSET NAME_HIGHEST_SCORE
 	MOV AH, 09
 	INT 21H
+
+	MOV K_ROW, 16
+	MOV K_COL, 27
+	MOV DH, K_ROW
+	MOV DL, K_COL
+	CALL SET_CURSOR
 
 	MOV DX, OFFSET PREV_SCORE_LABEL
 	MOV AH, 09
 	INT 21H
 
-	MOV DX, OFFSET PREV_SCORE
+	MOV DX, OFFSET SCORE_IN_DEC
 	MOV AH, 09
 	INT 21H
 
-	MOV K_ROW, 26
-	MOV K_COL, 00
+	MOV K_ROW, 16
+	MOV K_COL, 40
 	MOV DH, K_ROW
 	MOV DL, K_COL
-	CALL SET_CURSOR
+	CALL SET_CURSOR	
 
-	RET
-GAME_OVER_NEW_HIGHEST ENDP
-;-------------------------------------------
-;-------------------------------------------
+	;---print blinking !
+	MOV AH, 09H
+	MOV AL, '!'
+	MOV BH, 00H
+	MOV BL, 0F0H
+	MOV CX, 1
+	INT 10H
+
+	RET 
+DISPLAY_LABELS2_GH ENDP
 ;-------------------------------------------
 
 ;-------------------------------------------
 
 ;-------------------------------------------
 INT_TO_STR PROC NEAR
-        mov bx, 10              ; divisor
-        xor cx, cx              ; CX=0 (number of digits)
+        MOV BX, 10              ; divisor
+        XOR CX, CX              ; CX=0 (number of digits)
 
-    First_Loop:
-        xor dx, dx              ; Attention: DIV applies also DX!
-        div bx                  ; DX:AX / BX = AX remainder: DX
-        push dx                 ; LIFO
-        inc cx                  ; increment number of digits
-        test  ax, ax            ; AX = 0?
-        jnz First_Loop          ; no: once more
+    LOOP1:
+        XOR DX, DX              ; Attention: DIV applies also DX!
+        DIV BX                  ; DX:AX / BX = AX remainder: DX
+        PUSH DX                 ; LIFO
+        INC CX                  ; increment number of digits
+        TEST AX, AX            ; AX = 0?
+        JNZ LOOP1          ; no: once more
 
-        mov di, OFFSET SCORE_IN_DEC ; target string SCORE_IN_DEC
-    Second_Loop:
-        pop ax                  ; get back pushed digit
-        or ax, 00110000b        ; to ASCII
-        mov byte ptr [di], al   ; save AL
-        inc di                  ; DI points to next character in string SCORE_IN_DEC
-        loop Second_Loop        ; until there are no digits left
-
-        mov byte ptr [di], '$'  ; End-of-string delimiter for INT 21 / FN 09h
-        ret
+        MOV DI, OFFSET SCORE_IN_DEC ; target string SCORE_IN_DEC
+    LOOP2:
+        POP AX                  ; get back pushed digit
+        OR AX, 00110000B        ; to ASCII
+        MOV BYTE PTR [DI], AL   ; save AL
+        INC DI                  ; DI points to next character in string SCORE_IN_DEC
+        LOOP LOOP2        		;until there are no digits left
+        MOV BYTE PTR [DI], '$'  ; End-of-string delimiter for INT 21 / FN 09h
+        RET
 INT_TO_STR ENDP
 ;---------------------------------write error catching
 DISPLAY_ERROR1_WRITE:
@@ -692,7 +832,7 @@ GAME_START PROC NEAR
 	MOV J_COL, 78
 	MOV COUNT, 1
 	MOV SCORE, 0
-	 GAMELOOP: 
+	GAMELOOP: 
       	CALL  CLEAR_SCREEN  ;---to indicate score
         MOV DL, 65
         MOV DH, 2
@@ -702,40 +842,17 @@ GAME_START PROC NEAR
         INT 21H
 
         ;---int score data to string
-		xor ax, ax
-		mov al, score
-		adc ah, 0
-		mov val, ax 
-		mov ax, val 
-		call INT_TO_STR
-		lea dx, SCORE_IN_DEC
-		mov ah, 09
-		int 21h
+		XOR AX, AX
+		MOV AL, SCORE
+		ADC AH, 0
+		MOV VAL, AX 
+		MOV AX, VAL 
+		CALL INT_TO_STR
+		LEA DX, SCORE_IN_DEC
+		MOV AH, 09
+		INT 21H
 
-      	MOV DL, GROUND_J_COL ;---print the 2nd ground but steady in a specific position '.'
-      	MOV DH, GROUND_J_ROW
-      	CALL SET_CURSOR	
-      	LEA DX, GROUND1
-      	MOV AH, 09
-      	INT 21H
-
-        MOV DL, GROUND_J_COL ;---print the 3nd ground but steady in a specific position '-_'
-        MOV DH, 22
-        CALL SET_CURSOR 
-        LEA DX, GROUND2
-        MOV AH, 09
-        INT 21H
-
-        MOV DL, BIDA_J_COL  ;print the icon on specific position
-        MOV DH, BIDA_J_ROW
-        CALL SET_CURSOR 
-        MOV AH, 06
-        MOV DL, 01      ;---1 for smiley icon
-        INT 21H
-
-        MOV   DL, J_COL 	;---set the cursor again to position to the moving ground
-        MOV   DH, J_ROW    
-        CALL  SET_CURSOR
+      	CALL SET_CURSORS
 
         DISPLAY_ICON:
           CMP COUNT, 1
@@ -779,7 +896,9 @@ GAME_START PROC NEAR
 
           CONT8:
           CMP COUNT, 9
-          JE DISPLAY_L
+          JNE CONT9
+          JMP DISPLAY_L
+          CONT9:
           CMP COUNT, 10
           JE DISPLAY_S
           CMP COUNT, 11
@@ -789,7 +908,6 @@ GAME_START PROC NEAR
           CMP COUNT, 13
           JE DISPLAY_A
 
-        
         CONTINUE:
         	CALL  DELAY
         	CALL  J_GET_KEY
@@ -810,13 +928,29 @@ GAME_START PROC NEAR
       CMP AL, 's'
       JE ADD_SCORE
       CMP AL, 3
-      JE ADD_SCORE
+       JE ADD_SCORE
       JMP RETURN_TO_MAIN ;---meaning the bida hit a bad icon
     ADD_SCORE:
       INC SCORE
       JMP GAMELOOP 
     ;------------------------------display icons-------------------
-    DISPLAY_F:
+    CALL DISPLAY_ICONS
+    ;----------------------
+    PROCEED:
+    	MOV DL, AL
+    	MOV AH, 02
+    	INT 21H
+    	CMP J_COL, 75
+    	JG CONT
+   	CONT:
+    	JMP CONTINUE
+    ;---if game over, go back to main
+    RETURN_TO_MAIN:
+		RET
+GAME_START ENDP
+;-------------------------------------------
+DISPLAY_ICONS PROC NEAR 
+	DISPLAY_F:
     	MOV AL, 'f'
     	JMP PROCEED
 	  ;----------------------
@@ -850,20 +984,37 @@ GAME_START PROC NEAR
       INT 21H
       MOV AL, DL
       JMP CONTINUE
-    ;----------------------
-    PROCEED:
-    	MOV DL, AL
-    	MOV AH, 02
-    	INT 21H
-    	CMP J_COL, 75
-    	JG CONT
-   	CONT:
-    	JMP CONTINUE
-    ;---if game over, go back to main
-    RETURN_TO_MAIN:
-		RET
-GAME_START ENDP
-;-------------------------------------------  
+RET
+DISPLAY_ICONS ENDP
+;----------------------------------
+SET_CURSORS PROC NEAR 
+	MOV DL, GROUND_J_COL ;---print the 2nd ground but steady in a specific position '.'
+  	MOV DH, GROUND_J_ROW
+  	CALL SET_CURSOR	
+  	LEA DX, GROUND1
+  	MOV AH, 09
+  	INT 21H
+
+    MOV DL, GROUND_J_COL ;---print the 3nd ground but steady in a specific position '-_'
+    MOV DH, 22
+    CALL SET_CURSOR 
+    LEA DX, GROUND2
+    MOV AH, 09
+    INT 21H
+
+    MOV DL, BIDA_J_COL  ;print the icon on specific position
+    MOV DH, BIDA_J_ROW
+    CALL SET_CURSOR 
+    MOV AH, 06
+    MOV DL, 01      ;---1 for smiley icon
+    INT 21H
+
+    MOV   DL, J_COL 	;---set the cursor again to position to the moving ground
+    MOV   DH, J_ROW    
+    CALL  SET_CURSOR
+RET 
+SET_CURSORS ENDP  
+;-------------------------------------------
 DELAY PROC NEAR
       MOV BP, 2 ;lower value faster
       MOV SI, 2 ;lower value faster
@@ -951,7 +1102,7 @@ J_GET_KEY PROC NEAR
       RET
 J_GET_KEY   ENDP    
 
-;---------------------------------
+;-------------------------------------------------------------------------------------------------
 ;-------------------------------------------------------------------------------------------------
 ;-------------------------------------------------------------------------------------------------
 ;-------------------------------------------------------------------------------------------------
